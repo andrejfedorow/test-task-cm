@@ -1,0 +1,85 @@
+---
+- name: Provision software
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install packets (1)
+      apt:
+        pkg:
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg-agent
+        - gnupg
+        - software-properties-common
+        - lsb-release
+
+    - name: Fetch docker apt key
+      shell: >
+        curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor --batch --yes -o /usr/share/keyrings/docker-archive-keyring.gpg
+
+    - name: Add docker repository
+      shell: >
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+
+    - name: Refresh cache
+      apt:
+        update_cache: yes
+
+    - name: Install packets (2)
+      apt:
+        pkg:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        - python3-pip
+
+    - name: Install packets (3)
+      pip:
+        name:
+        - docker
+        - docker-compose
+
+    - name: Install docker compose
+      shell: >
+        sudo curl -L "https://github.com/docker/compose/releases/download/1.29.2/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+
+
+    - name: Changing permissions of "/usr/local/bin/docker-compose", adding "+x"
+      file: dest=/usr/local/bin/docker-compose mode=a+x
+
+    - name: Create Symbolic link for docker-compose
+      file:
+        src: /usr/local/bin/docker-compose
+        dest: /usr/bin/docker-compose
+        state: link
+
+    - name: Create directory structure
+      file:
+        path: "{{ item }}"
+        state: directory
+      with_items:
+        - "/root/weather"
+        - "/root/weather/grafana"
+        - "/root/weather/prometheus"
+
+    - name: Copy required files
+      copy: src={{ item.src }} dest={{ item.dest }}
+      with_items:
+        - { src: 'Dockerfile', dest: '/root/weather/' }
+        - { src: 'docker-compose.yml', dest: '/root/weather/' }
+        - { src: 'requirements.txt', dest: '/root/weather/' }
+        - { src: 'weather.py', dest: '/root/weather/' }
+        - { src: 'prometheus/prometheus.yml', dest: '/root/weather/prometheus/' }
+        - { src: 'grafana/dashboard.json', dest: '/root/weather/grafana/' }
+        - { src: 'grafana/dashboards.yaml', dest: '/root/weather/grafana/' }
+        - { src: 'grafana/datasource.yml', dest: '/root/weather/grafana/' }
+        - { src: 'grafana/grafana.ini', dest: '/root/weather/grafana/' }
+
+    - name: Create and start services
+      docker_compose:
+        project_src: /root/weather
+      register: output
+
+    - ansible.builtin.debug:
+        var: output
